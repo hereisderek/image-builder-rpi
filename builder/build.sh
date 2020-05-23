@@ -16,8 +16,9 @@ source /workspace/versions.config
 BUILD_RESULT_PATH="/workspace"
 
 # place to build our sd-image
-BUILD_PATH="/build"
-
+BUILD_PATH="${BUILD_RESULT_PATH}/build"
+HYPRIOT_OS_GITHUB=${HYPRIOT_OS_GITHUB:="https://github.com/hypriot/os-rootfs"}
+HYPRIOT_OS_VERSION=${HYPRIOT_OS_VERSION:="dirty"}
 ROOTFS_TAR="rootfs-armhf-raspbian-${HYPRIOT_OS_VERSION}.tar.gz"
 ROOTFS_TAR_PATH="${BUILD_RESULT_PATH}/${ROOTFS_TAR}"
 
@@ -45,14 +46,16 @@ export IMAGE_PARTUUID_PREFIX
 
 # create build directory for assembling our image filesystem
 rm -rf ${BUILD_PATH}
-mkdir ${BUILD_PATH}
+mkdir -p ${BUILD_PATH}
 
 # download our base root file system
 if [ ! -f "${ROOTFS_TAR_PATH}" ]; then
-  wget -q -O "${ROOTFS_TAR_PATH}" "https://github.com/hypriot/os-rootfs/releases/download/${HYPRIOT_OS_VERSION}/${ROOTFS_TAR}"
+  echo "Downloading from: ${HYPRIOT_OS_GITHUB}/releases/download/${HYPRIOT_OS_VERSION}/${ROOTFS_TAR} save to: ${ROOTFS_TAR_PATH}"
+  wget -q -O "${ROOTFS_TAR_PATH}" "${HYPRIOT_OS_GITHUB}/releases/download/${HYPRIOT_OS_VERSION}/${ROOTFS_TAR}"
 fi
 
 # verify checksum of our root filesystem
+
 echo "${ROOTFS_TAR_CHECKSUM} ${ROOTFS_TAR_PATH}" | sha256sum -c -
 
 # extract root file system
@@ -65,11 +68,13 @@ update-binfmts --enable qemu-arm
 
 # set up mount points for the pseudo filesystems
 mkdir -p ${BUILD_PATH}/{proc,sys,dev/pts}
-
 mount -o bind /dev ${BUILD_PATH}/dev
 mount -o bind /dev/pts ${BUILD_PATH}/dev/pts
 mount -t proc none ${BUILD_PATH}/proc
 mount -t sysfs none ${BUILD_PATH}/sys
+
+mkdir -p ${BUILD_RESULT_PATH}/apt/archives
+mount -o bind ${BUILD_PATH}/var/cache/apt ${BUILD_RESULT_PATH}/apt/archives
 
 # modify/add image files directly
 cp -R /builder/files/* ${BUILD_PATH}/
@@ -84,6 +89,7 @@ umount -l ${BUILD_PATH}/dev/pts
 umount -l ${BUILD_PATH}/dev
 umount -l ${BUILD_PATH}/proc
 umount -l ${BUILD_PATH}/sys
+umount -l ${BUILD_PATH}/var/cache/apt
 
 # package image filesytem into two tarballs - one for bootfs and one for rootfs
 # ensure that there are no leftover artifacts in the pseudo filesystems
@@ -97,7 +103,7 @@ du -sh ${BUILD_PATH}
 ls -alh /image_with_kernel_*.tar.gz
 
 # create the image and add root base filesystem
-guestfish -a "${BUILD_RESULT_PATH}/${HYPRIOT_IMAGE_NAME}"<<_EOF_
+guestfish --progress-bars -a "${BUILD_RESULT_PATH}/${HYPRIOT_IMAGE_NAME}"<<_EOF_
   run
   #import filesystem content
   mount /dev/sda2 /
